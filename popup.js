@@ -1,8 +1,9 @@
 const duplicateButton = document.querySelector("#duplicate-listing");
 const statusElement = document.querySelector("#status");
+const extensionApi = globalThis.browser ?? globalThis.chrome;
 
 async function getActiveTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const [tab] = await extensionApi.tabs.query({ active: true, currentWindow: true });
   const hostName = tab?.url ? new URL(tab.url).hostname : "";
   if (!tab?.id || (hostName !== "kleinanzeigen.de" && !hostName.endsWith(".kleinanzeigen.de"))) {
     throw new Error("Bitte zuerst eine Kleinanzeigen-Seite öffnen.");
@@ -25,13 +26,13 @@ async function duplicateListing() {
 
   try {
     const tab = await getActiveTab();
-    const copyResponse = await chrome.tabs.sendMessage(tab.id, { action: "COPY_LISTING" });
+    const copyResponse = await extensionApi.tabs.sendMessage(tab.id, { action: "COPY_LISTING" });
     if (!copyResponse?.ok) {
       throw new Error(copyResponse?.error || "Das Inserat konnte nicht kopiert werden.");
     }
 
     setStatus("Neues Inserat wird geöffnet und ausgefüllt …");
-    const pasteResponse = await chrome.runtime.sendMessage({ action: "OPEN_AND_PASTE_LISTING" });
+    const pasteResponse = await extensionApi.runtime.sendMessage({ action: "OPEN_AND_PASTE_LISTING" });
     if (!pasteResponse?.ok) {
       throw new Error(pasteResponse?.error || "Das neue Inserat konnte nicht ausgefüllt werden.");
     }

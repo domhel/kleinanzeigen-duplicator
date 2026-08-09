@@ -1,14 +1,26 @@
 # Kleinanzeigen Inserat-Duplikator
 
-Chrome Extension (Manifest V3), die Daten und Bilder eines bestehenden
+Browser-Erweiterung für Chrome und Firefox (Manifest V3), die Daten und Bilder eines bestehenden
 Kleinanzeigen-Inserats lokal speichert und in ein neues Inserat einfügt.
 
-## Installation
+Unterstützt werden Chrome ab Version 121 und Firefox ab Version 140.
+
+## Installation in Chrome
 
 1. `chrome://extensions` in Chrome öffnen.
 2. Den **Entwicklermodus** aktivieren.
 3. **Entpackte Erweiterung laden** wählen und diesen Projektordner auswählen.
 4. Bereits geöffnete Kleinanzeigen-Tabs einmal neu laden.
+
+## Installation in Firefox
+
+1. `about:debugging#/runtime/this-firefox` in Firefox öffnen.
+2. **Temporäres Add-on laden** wählen.
+3. Die Datei `manifest.json` aus diesem Projektordner auswählen.
+4. Bereits geöffnete Kleinanzeigen-Tabs einmal neu laden.
+
+Temporär geladene Firefox-Erweiterungen werden beim Beenden von Firefox entfernt
+und müssen für die Entwicklung anschließend erneut geladen werden.
 
 ## Verwendung
 
@@ -20,7 +32,8 @@ Kleinanzeigen-Inserats lokal speichert und in ein neues Inserat einfügt.
    Inserat veröffentlicht wird.
 
 Die kopierten Daten einschließlich der Bilder bleiben ausschließlich in
-`chrome.storage.local`. Beim nächsten Kopieren werden sie ersetzt.
+der lokalen Erweiterungs-Speicherung des Browsers. Beim nächsten Kopieren werden
+sie ersetzt.
 
 ## Hinweise
 

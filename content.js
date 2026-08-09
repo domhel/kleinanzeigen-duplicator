@@ -1,11 +1,12 @@
 (() => {
   const LISTING_PATH = "/s-anzeige/";
+  const extensionApi = globalThis.browser ?? globalThis.chrome;
   const CREATE_PATHS = new Set([
     "/p-anzeige-aufgeben-schritt2.html",
     "/p-anzeige-aufgeben.html"
   ]);
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  extensionApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.action === "COPY_LISTING") {
       copyListing()
         .then(sendResponse)
@@ -29,7 +30,7 @@
     }
 
     const listing = scrapeListing();
-    const response = await chrome.runtime.sendMessage({ action: "SAVE_LISTING", listing });
+    const response = await extensionApi.runtime.sendMessage({ action: "SAVE_LISTING", listing });
     if (!response?.ok) {
       throw new Error(response?.error || "Das Inserat konnte nicht gespeichert werden.");
     }
@@ -317,7 +318,7 @@
       throw new Error("Bitte die Seite „Anzeige aufgeben“ öffnen.");
     }
 
-    const response = await chrome.runtime.sendMessage({ action: "GET_LISTING" });
+    const response = await extensionApi.runtime.sendMessage({ action: "GET_LISTING" });
     if (!response?.ok) {
       throw new Error(response?.error || "Gespeichertes Inserat konnte nicht geladen werden.");
     }

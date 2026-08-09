@@ -1,7 +1,8 @@
 const STORAGE_KEY = "copiedListing";
 const CREATE_LISTING_URL = "https://www.kleinanzeigen.de/p-anzeige-aufgeben-schritt2.html";
+const extensionApi = globalThis.browser ?? globalThis.chrome;
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+extensionApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "SAVE_LISTING") {
     saveListing(message.listing)
       .then((listing) => sendResponse({ ok: true, imageCount: listing.images.length }))
@@ -10,14 +11,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.action === "GET_LISTING") {
-    chrome.storage.local.get(STORAGE_KEY)
+    extensionApi.storage.local.get(STORAGE_KEY)
       .then((result) => sendResponse({ ok: true, listing: result[STORAGE_KEY] || null }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
 
   if (message.action === "CLEAR_LISTING") {
-    chrome.storage.local.remove(STORAGE_KEY)
+    extensionApi.storage.local.remove(STORAGE_KEY)
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -34,7 +35,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function openAndPasteListing() {
-  const tab = await chrome.tabs.create({
+  const tab = await extensionApi.tabs.create({
     url: CREATE_LISTING_URL,
     active: false
   });
@@ -49,7 +50,7 @@ async function openAndPasteListing() {
       throw new Error(response?.error || "Das Formular konnte nicht ausgefüllt werden.");
     }
 
-    await chrome.tabs.update(tab.id, { active: true });
+    await extensionApi.tabs.update(tab.id, { active: true });
     return response;
   } catch (error) {
     throw new Error(`Der neue Tab wurde geöffnet, aber nicht ausgefüllt: ${error.message}`);
@@ -62,7 +63,7 @@ async function sendMessageWhenReady(tabId, message) {
 
   while (Date.now() < deadline) {
     try {
-      return await chrome.tabs.sendMessage(tabId, message);
+      return await extensionApi.tabs.sendMessage(tabId, message);
     } catch (error) {
       lastError = error;
       await delay(250);
@@ -93,7 +94,7 @@ async function saveListing(listing) {
     copiedAt: new Date().toISOString()
   };
 
-  await chrome.storage.local.set({ [STORAGE_KEY]: storedListing });
+  await extensionApi.storage.local.set({ [STORAGE_KEY]: storedListing });
   return storedListing;
 }
 
