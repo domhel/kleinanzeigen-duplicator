@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Kleinanzeigen Inserat-Duplikator",
+  "version": "1.0.0",
+  "description": "Kopiert ein bestehendes Kleinanzeigen-Inserat in ein neues Inserat.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "https://www.kleinanzeigen.de/*",
+    "https://kleinanzeigen.de/*",
+    "https://*.kleinanzeigen.de/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Inserat duplizieren"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.kleinanzeigen.de/*",
+        "https://kleinanzeigen.de/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
