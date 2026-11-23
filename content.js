@@ -157,6 +157,8 @@
 
   function readCategoryPath() {
     const containers = [
+      "#vap-brdcrmb",
+      "[itemtype*='BreadcrumbList']",
       "#viewad-breadcrumb",
       "[data-testid='breadcrumbs']",
       "nav[aria-label*='readcrumb' i]"
@@ -179,6 +181,8 @@
 
   function readShipping() {
     const selectors = [
+      // The shipping note ("Nur Abholung", "Versand möglich", …) sits next to the price.
+      "#viewad-price ~ *",
       "[data-testid*='shipping' i]",
       "#viewad-details-shipping",
       "[class*='shipping' i]"
@@ -186,6 +190,10 @@
     const lines = [];
     for (const selector of selectors) {
       for (const element of document.querySelectorAll(selector)) {
+        // Similar ads further down the page carry their own shipping notes.
+        if (element.closest("#vip-similar-ads-list, [id*='similar' i]")) {
+          continue;
+        }
         const text = element.innerText?.replace(/\s+/g, " ").trim();
         if (text && /versand|abholung|lieferung/i.test(text)) {
           lines.push(text);
@@ -206,10 +214,16 @@
   }
 
   function readImageUrls(structuredData) {
+    const galleryUrls = readGalleryImageUrls();
+    if (galleryUrls.length) {
+      return normalizeImageUrls(galleryUrls);
+    }
+
     const urls = [];
     const gallerySelectors = [
       "[data-testid*='gallery' i] a[href]",
       "[data-testid*='gallery' i] img",
+      "img#viewad-image",
       "#viewad-image img",
       "#viewad-image source",
       "[class*='gallery' i] img",
@@ -233,11 +247,30 @@
       }
     }
 
+    // og:image can be the generic Kleinanzeigen logo rather than an ad photo.
     const socialImage = document.querySelector("meta[property='og:image']")?.content;
-    if (socialImage) {
+    if (socialImage && !/logo/i.test(socialImage)) {
       urls.push(socialImage);
     }
 
+    return normalizeImageUrls(urls);
+  }
+
+  // The gallery is an Astro island ("GalleryInBody") that renders every ad
+  // photo as an <img>, the first one with id "viewad-image". Reading only inside
+  // it keeps photos of similar ads on the same page out.
+  function readGalleryImageUrls() {
+    const gallery = document.querySelector("#viewad-image")?.closest("astro-island")
+      || document.querySelector("astro-island[component-url*='Gallery' i]");
+    if (!gallery) {
+      return [];
+    }
+    return [...gallery.querySelectorAll("img, source")]
+      .map(bestImageUrl)
+      .filter(Boolean);
+  }
+
+  function normalizeImageUrls(urls) {
     const seen = new Set();
     return urls
       .map(toAbsoluteUrl)
@@ -292,7 +325,7 @@
     try {
       const parsed = new URL(url);
       const rule = parsed.searchParams.get("rule");
-      if (/^\$_\d+\.(?:jpe?g|png)$/i.test(rule || "")) {
+      if (/^\$_\d+\.(?:jpe?g|png|auto)$/i.test(rule || "")) {
         parsed.searchParams.set("rule", "$_57.JPG");
       }
       parsed.pathname = parsed.pathname.replace(/\$_\d+(?=\.(?:jpe?g|png)$)/i, "$_57");
@@ -335,8 +368,26 @@
     };
   }
 
+  const TITLE_SELECTORS = [
+    "#ad-title",
+    "#postad-title",
+    "input[name='title']",
+    "input[data-testid*='title' i]"
+  ];
+  const DESCRIPTION_SELECTORS = [
+    "#ad-description",
+    "#postad-description",
+    "textarea[name='description']",
+    "textarea[data-testid*='description' i]"
+  ];
+
   async function fillListingForm(listing) {
     const warnings = [];
+    const descriptionField = findField(DESCRIPTION_SELECTORS);
+
+    await waitForFormReady(descriptionField, listing.description);
+
+    setFieldValue(findField(TITLE_SELECTORS), listing.title);
 
     if (!listing.categoryPath.length) {
       warnings.push("Kategorie wurde im Original nicht erkannt.");
@@ -344,20 +395,9 @@
       warnings.push("Kategorie bitte manuell wählen.");
     }
 
-    setFieldValue(findField([
-      "#ad-title",
-      "#postad-title",
-      "input[name='title']",
-      "input[data-testid*='title' i]"
-    ]), listing.title);
-    await waitForDomUpdate(300);
-
-    setFieldValue(findField([
-      "#ad-description",
-      "#postad-description",
-      "textarea[name='description']",
-      "textarea[data-testid*='description' i]"
-    ]), listing.description);
+    if (descriptionField.value !== listing.description) {
+      setFieldValue(descriptionField, listing.description);
+    }
 
     if (listing.price.type !== "GIVE_AWAY" && listing.price.value !== null) {
       setFieldValue(findField([
@@ -373,15 +413,45 @@
       warnings.push("Preistyp bitte prüfen.");
     }
 
-    if (listing.shipping.options.length && !selectShipping(listing.shipping)) {
+    // The form defaults to "Versand möglich", so an unknown shipping mode must be flagged.
+    if (!listing.shipping.options.length || !(await selectShipping(listing.shipping))) {
       warnings.push("Versand bitte prüfen.");
     }
 
-    if (listing.images.length && !uploadImages(listing.images)) {
+    if (listing.images.length && !(await uploadImages(listing.images))) {
       warnings.push("Bilder konnten nicht eingefügt werden.");
     }
 
     return warnings;
+  }
+
+  // The form is a server-rendered Astro island that React hydrates later. Before
+  // hydration its controls have no event handlers, so every interaction is lost.
+  // The description counter only updates once React handles input events.
+  async function waitForFormReady(descriptionField, description) {
+    if (!descriptionField) {
+      throw new Error("Ein erforderliches Formularfeld wurde nicht gefunden.");
+    }
+    const island = descriptionField.closest("astro-island");
+    if (!island) {
+      return;
+    }
+    if (!(await waitFor(() => !island.hasAttribute("ssr"), 30000))) {
+      throw new Error("Das Formular wurde nicht rechtzeitig geladen.");
+    }
+
+    const counter = document.querySelector("#ad-description-character-count");
+    if (!counter) {
+      await waitForDomUpdate(1000);
+      return;
+    }
+    const isReady = await waitFor(() => {
+      setFieldValue(descriptionField, description);
+      return !/^0\s*\//.test(counter.textContent.trim());
+    }, 15000, 500);
+    if (!isReady) {
+      throw new Error("Das Formular reagiert nicht auf Eingaben.");
+    }
   }
 
   function findField(selectors) {
@@ -402,10 +472,14 @@
       ? HTMLTextAreaElement.prototype
       : HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+    // Clear first so React sees a change even if the DOM already holds the value.
+    setter?.call(field, "");
+    field.dispatchEvent(new Event("input", { bubbles: true }));
     setter?.call(field, value);
     field.dispatchEvent(new Event("input", { bubbles: true }));
     field.dispatchEvent(new Event("change", { bubbles: true }));
-    field.dispatchEvent(new Event("blur", { bubbles: true }));
+    field.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    field.dispatchEvent(new FocusEvent("blur"));
   }
 
   async function selectPriceType(type) {
@@ -415,30 +489,47 @@
       GIVE_AWAY: ["Zu verschenken", "Verschenken"]
     }[type];
 
-    const priceTypeInput = document.querySelector("input[name='priceType']");
-    if (priceTypeInput?.value === type) {
+    const readPriceType = () => document.querySelector("input[name='priceType']")?.value;
+    if (readPriceType() === type) {
       return true;
     }
 
     const combobox = document.querySelector("#ad-price-type[role='combobox']");
     if (combobox && isVisible(combobox)) {
-      combobox.click();
-      for (const label of labels) {
-        const option = await waitForTextOption(label, 1500);
-        if (option) {
-          option.click();
-          await waitForDomUpdate(100);
-          return true;
-        }
+      if (combobox.getAttribute("aria-expanded") !== "true") {
+        combobox.click();
       }
-      return false;
+      // Options stay "invisible" until the menu is positioned, so match them regardless.
+      const targets = labels.map(normalizeLabel);
+      const option = await waitFor(() => {
+        const menu = document.getElementById(`${combobox.id}-menu`);
+        return [...(menu?.querySelectorAll("[role='option']") || [])]
+          .find((element) => targets.includes(normalizeLabel(element.textContent))) || null;
+      }, 3000);
+      if (!option) {
+        return false;
+      }
+      option.click();
+      return Boolean(await waitFor(() => readPriceType() === type, 1500));
     }
 
     return selectLabeledControl(labels, ["priceType", "price-type", "price_type"]);
   }
 
-  function selectShipping(shipping) {
-    const terms = [...shipping.options, "Versand", "Lieferung", "Abholung"];
+  async function selectShipping(shipping) {
+    const radio = await waitFor(
+      () => document.querySelector(shipping.enabled ? "#ad-shipping-enabled-yes" : "#ad-shipping-enabled-no"),
+      3000
+    );
+    if (radio) {
+      if (!radio.checked) {
+        radio.click();
+      }
+      return true;
+    }
+    const terms = shipping.enabled
+      ? [...shipping.options, "Versand", "Lieferung"]
+      : [...shipping.options, "Abholung"];
     return selectLabeledControl(terms, ["shipping", "delivery", "pickup", "versand"]);
   }
 
@@ -470,73 +561,101 @@
     return value.split(" ").filter((word) => word.length >= 4 && !/^\d/.test(word));
   }
 
+  // Entering the title makes Kleinanzeigen suggest categories as radio buttons
+  // labelled with their breadcrumb, e.g. "Auto, Rad & Boot > Fahrräder & Zubehör".
   async function selectCategoryPath(path) {
-    const opener = findClickableBySelectors([
-      "#ad-category-suggestions a",
-      "[data-testid*='category' i] button",
-      "button[id*='category' i]",
-      "button[name*='category' i]"
-    ]);
+    const parts = path.map(normalizeLabel);
+    const suggestion = await waitFor(() => {
+      const radios = document.querySelectorAll("input[type='radio'][name='category-suggestions']");
+      return radios.length ? bestCategorySuggestion([...radios], parts) : null;
+    }, 8000);
+    if (suggestion) {
+      if (!suggestion.checked) {
+        suggestion.click();
+      }
+      await waitForDomUpdate(500);
+      return true;
+    }
+    return isCategoryModalEnabled() && selectCategoryInModal(parts);
+  }
+
+  function bestCategorySuggestion(radios, parts) {
+    const mostSpecific = parts[parts.length - 1];
+    let best = null;
+    let bestScore = 0;
+    for (const radio of radios) {
+      const label = normalizeLabel(radio.closest("label")?.textContent || radio.labels?.[0]?.textContent);
+      if (!label.includes(mostSpecific)) {
+        continue;
+      }
+      const score = parts.filter((part) => label.includes(part)).length;
+      if (score > bestScore) {
+        best = radio;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  // Without the category modal, the category link submits the form to a separate
+  // page, which would discard everything filled in so far.
+  function isCategoryModalEnabled() {
+    const props = document.querySelector("#ad-title")?.closest("astro-island")?.getAttribute("props") || "";
+    return /"isCategoryPickerModalEnabled":\[0,true\]/.test(props);
+  }
+
+  async function selectCategoryInModal(parts) {
+    const opener = document.querySelector("#ad-category-suggestions a");
     if (!opener) {
       return false;
     }
     opener.click();
-
-    let selected = 0;
-    for (const part of path) {
-      const option = await waitForTextOption(part, 1500);
-      if (!option) {
-        continue;
-      }
-      option.click();
-      selected += 1;
-      await waitForDomUpdate(200);
+    const dialog = await waitFor(() => document.querySelector("#category-search-input")?.closest("[role='dialog'], dialog"), 3000);
+    if (!dialog) {
+      return false;
     }
-    return selected === path.length;
+
+    const findButton = (text) => [...dialog.querySelectorAll("button")]
+      .find((button) => normalizeLabel(button.querySelector("span.flex-1")?.textContent || button.textContent) === text);
+    for (const part of parts) {
+      const item = await waitFor(() => findButton(part), 3000);
+      if (!item) {
+        findButton("abbrechen")?.click();
+        return false;
+      }
+      item.click();
+      await waitForDomUpdate(300);
+    }
+
+    const confirm = findButton("ubernehmen");
+    if (!confirm || confirm.disabled) {
+      findButton("abbrechen")?.click();
+      return false;
+    }
+    confirm.click();
+    await waitForDomUpdate(500);
+    return true;
   }
 
-  function findClickableBySelectors(selectors) {
-    for (const selector of selectors) {
-      const element = [...document.querySelectorAll(selector)].find(isVisible);
-      if (element) {
-        return element;
+  async function waitFor(predicate, timeout, interval = 100) {
+    const deadline = Date.now() + timeout;
+    while (true) {
+      const result = predicate();
+      if (result) {
+        return result;
       }
+      if (Date.now() >= deadline) {
+        return null;
+      }
+      await waitForDomUpdate(interval);
     }
-    return null;
-  }
-
-  async function waitForTextOption(text, timeout) {
-    const findOption = () => {
-      const target = normalizeLabel(text);
-      const candidates = document.querySelectorAll("button, [role='option'], [role='menuitem'], label, li a");
-      return [...candidates].find((element) => isVisible(element) && normalizeLabel(element.textContent) === target) || null;
-    };
-    const existing = findOption();
-    if (existing) {
-      return existing;
-    }
-    return new Promise((resolve) => {
-      const observer = new MutationObserver(() => {
-        const option = findOption();
-        if (option) {
-          observer.disconnect();
-          clearTimeout(timer);
-          resolve(option);
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-      const timer = setTimeout(() => {
-        observer.disconnect();
-        resolve(null);
-      }, timeout);
-    });
   }
 
   function waitForDomUpdate(duration) {
     return new Promise((resolve) => setTimeout(resolve, duration));
   }
 
-  function uploadImages(images) {
+  async function uploadImages(images) {
     const input = findFileInput([
       "main form input[type='file'][multiple][accept*='image']",
       "input[type='file'][accept*='image']",
@@ -556,20 +675,17 @@
       }));
     }
 
+    // The file input and the drop zone both hand files to the same uploader, so
+    // only use one of them to avoid duplicate uploads.
     input.files = transfer.files;
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
 
-    const dropZone = input.closest("[data-testid*='drop' i], [class*='dropzone' i], .border-dashed")
-      || input.parentElement;
-    if (dropZone) {
-      dropZone.dispatchEvent(new DragEvent("drop", {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: transfer
-      }));
-    }
-    return true;
+    const uploadStarted = await waitFor(
+      () => document.querySelector("[aria-label$='wird hochgeladen'], [aria-label='Bild entfernen'], #ad-images-error"),
+      10000
+    );
+    return Boolean(uploadStarted) && !document.querySelector("#ad-images-error");
   }
 
   function findFileInput(selectors) {
