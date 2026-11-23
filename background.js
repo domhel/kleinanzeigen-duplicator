@@ -35,8 +35,16 @@ extensionApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function openAndPasteListing() {
+  // The create page preselects the category, and with it the category's detail
+  // fields, from ?categoryId=.
+  const { [STORAGE_KEY]: listing } = await extensionApi.storage.local.get(STORAGE_KEY);
+  const url = new URL(CREATE_LISTING_URL);
+  if (listing?.categoryId) {
+    url.searchParams.set("categoryId", listing.categoryId);
+  }
+
   const tab = await extensionApi.tabs.create({
-    url: CREATE_LISTING_URL,
+    url: url.href,
     active: false
   });
 

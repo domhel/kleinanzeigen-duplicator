@@ -24,12 +24,13 @@ und müssen für die Entwicklung anschließend erneut geladen werden.
 
 ## Verwendung
 
-1. Ein eigenes Inserat unter `kleinanzeigen.de/s-anzeige/...` öffnen.
+1. Angemeldet ein eigenes Inserat unter `kleinanzeigen.de/s-anzeige/...` oder
+   dessen Bearbeiten-Seite öffnen.
 2. Die Erweiterung öffnen und **Inserat duplizieren** wählen.
-3. Die Erweiterung kopiert das Inserat, öffnet einen neuen Tab und füllt das neue
-  Inserat automatisch aus – einschließlich der Details der Kategorie wie Marke,
-  Modell, Farbe oder Zustand. Details, für die das Formular kein passendes Feld
-  bietet, nennt die Erweiterung als „Nicht übernommen“.
+3. Die Erweiterung kopiert das Inserat, öffnet einen neuen Tab mit derselben
+   Kategorie und füllt das neue Inserat automatisch aus – einschließlich der
+   Details wie Marke, Modell, Farbe oder Zustand. Details, die nicht gesetzt
+   werden konnten, nennt die Erweiterung als „Nicht übernommen“.
 4. Kategorie, Versand, Bilder und alle weiteren Angaben kontrollieren, bevor das
    Inserat veröffentlicht wird.
 
@@ -39,8 +40,12 @@ sie ersetzt.
 
 ## Hinweise
 
-- Kleinanzeigen kann sein DOM jederzeit ändern. Die Erweiterung verwendet mehrere
-  semantische Selektoren und meldet Felder, die nicht sicher gesetzt werden konnten.
+- Die Daten stammen aus der Bearbeiten-Seite des Inserats, die die gespeicherten
+  Werte enthält. Deshalb lassen sich nur eigene Inserate duplizieren.
+- Bei Inseraten mit Versand müssen Versanddienstleister und Paketgröße noch
+  manuell gewählt werden.
+- Kleinanzeigen kann seine Seiten jederzeit ändern. Die Erweiterung prüft jedes
+  gesetzte Feld und meldet, was nicht übernommen werden konnte.
 - Browser blockieren mitunter programmgesteuerte Dateiübergaben, wenn eine Seite
   zusätzliche Sicherheitsprüfungen nutzt. In diesem Fall müssen Bilder manuell
   hochgeladen werden.
