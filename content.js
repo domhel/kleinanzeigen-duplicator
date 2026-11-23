@@ -71,9 +71,23 @@
         raw: priceText
       },
       categoryPath,
+      details: readDetails(),
       shipping: readShipping(),
       imageUrls
     };
+  }
+
+  // Category-specific details such as "Marke: Apple" or "Zustand: Gut", shown
+  // as one list item per detail with the value in the last element.
+  function readDetails() {
+    return [...document.querySelectorAll("#viewad-details li")]
+      .map((item) => {
+        const value = item.lastElementChild?.textContent.replace(/\s+/g, " ").trim() || "";
+        const text = item.textContent.replace(/\s+/g, " ").trim();
+        const label = text.endsWith(value) ? text.slice(0, text.length - value.length).trim() : "";
+        return { label, value };
+      })
+      .filter((detail) => detail.label && detail.value);
   }
 
   function findProductData() {
@@ -395,6 +409,15 @@
       warnings.push("Kategorie bitte manuell wählen.");
     }
 
+    // Detail fields only appear once a category is chosen.
+    const details = listing.details || [];
+    if (details.length) {
+      const skipped = await fillDetails(details);
+      if (skipped.length) {
+        warnings.push(`Nicht übernommen: ${skipped.join(", ")}.`);
+      }
+    }
+
     if (descriptionField.value !== listing.description) {
       setFieldValue(descriptionField, listing.description);
     }
@@ -496,24 +519,143 @@
 
     const combobox = document.querySelector("#ad-price-type[role='combobox']");
     if (combobox && isVisible(combobox)) {
-      if (combobox.getAttribute("aria-expanded") !== "true") {
-        combobox.click();
-      }
-      // Options stay "invisible" until the menu is positioned, so match them regardless.
-      const targets = labels.map(normalizeLabel);
-      const option = await waitFor(() => {
-        const menu = document.getElementById(`${combobox.id}-menu`);
-        return [...(menu?.querySelectorAll("[role='option']") || [])]
-          .find((element) => targets.includes(normalizeLabel(element.textContent))) || null;
-      }, 3000);
-      if (!option) {
+      if (!(await chooseComboboxOption(combobox, labels))) {
         return false;
       }
-      option.click();
       return Boolean(await waitFor(() => readPriceType() === type, 1500));
     }
 
     return selectLabeledControl(labels, ["priceType", "price-type", "price_type"]);
+  }
+
+  // Each detail field is labelled like the listing shows it ("Farbe", "Zustand")
+  // via <label for="<key>">, e.g. key "handy_telekom.color", and keeps its value
+  // in a hidden input "attributeMap[<key>]" that the form submits. The visible
+  // control is a dropdown button, a searchable input, or a button opening a
+  // dialog with radio buttons. Returns the labels of details that were not set.
+  async function fillDetails(details) {
+    if (!(await waitFor(() => document.querySelector("input[name^='attributeMap[']"), 5000))) {
+      return details.map((detail) => detail.label);
+    }
+    const skipped = [];
+    for (const detail of details) {
+      const key = findDetailKey(detail.label);
+      if (!key || !(await setDetail(key, detail.value))) {
+        skipped.push(detail.label);
+      }
+    }
+    return skipped;
+  }
+
+  function findDetailKey(label) {
+    const target = compactLabel(label);
+    for (const element of document.querySelectorAll("label[for]")) {
+      // Required fields read "Marke*" followed by a screen-reader hint.
+      if (compactLabel(element.textContent.split("*")[0]) === target) {
+        const key = element.getAttribute("for");
+        if (readDetailValue(key) !== undefined) {
+          return key;
+        }
+      }
+    }
+    return null;
+  }
+
+  function readDetailValue(key) {
+    return document.querySelector(`input[name="attributeMap[${CSS.escape(key)}]"]`)?.value;
+  }
+
+  async function setDetail(key, value) {
+    const control = document.getElementById(key);
+    let chosen = false;
+    if (control?.matches("button[role='combobox']")) {
+      chosen = await chooseComboboxOption(control, [value]);
+    } else if (control?.matches("input[role='combobox']")) {
+      chosen = await chooseSearchOption(control, value);
+    } else if (!control) {
+      chosen = await chooseDialogOption(key, value);
+    } else if (control.matches("input, textarea")) {
+      const isNumeric = control.inputMode === "numeric" || control.type === "number";
+      setFieldValue(control, isNumeric ? value.replace(/[^\d,]/g, "") : value);
+      chosen = true;
+    }
+    return chosen && Boolean(await waitFor(() => readDetailValue(key), 1500));
+  }
+
+  // Dropdown button whose options live in "<id>-menu". Options stay "invisible"
+  // until the menu is positioned, so they are matched regardless.
+  async function chooseComboboxOption(combobox, labels) {
+    if (combobox.getAttribute("aria-expanded") !== "true") {
+      combobox.click();
+    }
+    const option = await waitFor(() => findOption(`${combobox.id}-menu`, labels), 3000);
+    if (!option) {
+      if (combobox.getAttribute("aria-expanded") === "true") {
+        combobox.click();
+      }
+      return false;
+    }
+    option.click();
+    return true;
+  }
+
+  // Text input that filters its options while typing, e.g. "Modell".
+  async function chooseSearchOption(input, value) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    input.focus();
+    input.click();
+    setter?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const menuId = input.getAttribute("aria-controls") || `${input.id}-menu`;
+    const option = await waitFor(() => findOption(menuId, [value]), 3000);
+    if (!option) {
+      setter?.call(input, "");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.blur();
+      return false;
+    }
+    option.click();
+    return true;
+  }
+
+  // Button that opens a dialog with one radio button per value, e.g. "Zustand".
+  async function chooseDialogOption(key, value) {
+    const opener = document.querySelector(`input[name="attributeMap[${CSS.escape(key)}]"]`)
+      ?.parentElement?.querySelector("button[aria-haspopup='dialog']");
+    if (!opener) {
+      return false;
+    }
+    opener.click();
+    const dialog = await waitFor(() => [...document.querySelectorAll("dialog[open]")].find(isVisible), 3000);
+    if (!dialog) {
+      return false;
+    }
+    const findButton = (pattern) => [...dialog.querySelectorAll("button")]
+      .find((button) => pattern.test(normalizeLabel(button.getAttribute("aria-label") || button.textContent)));
+    const target = compactLabel(value);
+    const radio = [...dialog.querySelectorAll("input[type='radio']")]
+      .find((element) => compactLabel(element.labels?.[0]?.textContent) === target);
+    const confirm = findButton(/^(bestatigen|ubernehmen|fertig)$/);
+    if (!radio || !confirm) {
+      findButton(/^(abbrechen|schliessen)$/)?.click();
+      return false;
+    }
+    radio.click();
+    await waitForDomUpdate(100);
+    confirm.click();
+    await waitFor(() => !dialog.isConnected || !dialog.open, 2000);
+    return true;
+  }
+
+  function findOption(menuId, labels) {
+    const targets = labels.map(compactLabel);
+    const options = document.getElementById(menuId)?.querySelectorAll("[role='option']") || [];
+    return [...options].find((option) => targets.includes(compactLabel(option.textContent))) || null;
+  }
+
+  // Ignores case, accents, spacing and punctuation: "Gut (85 – 94%)" → "gut8594".
+  function compactLabel(value) {
+    return normalizeLabel(value).replace(/[^a-z0-9]/g, "");
   }
 
   async function selectShipping(shipping) {

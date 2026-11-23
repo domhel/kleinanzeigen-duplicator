@@ -27,7 +27,9 @@ und müssen für die Entwicklung anschließend erneut geladen werden.
 1. Ein eigenes Inserat unter `kleinanzeigen.de/s-anzeige/...` öffnen.
 2. Die Erweiterung öffnen und **Inserat duplizieren** wählen.
 3. Die Erweiterung kopiert das Inserat, öffnet einen neuen Tab und füllt das neue
-  Inserat automatisch aus.
+  Inserat automatisch aus – einschließlich der Details der Kategorie wie Marke,
+  Modell, Farbe oder Zustand. Details, für die das Formular kein passendes Feld
+  bietet, nennt die Erweiterung als „Nicht übernommen“.
 4. Kategorie, Versand, Bilder und alle weiteren Angaben kontrollieren, bevor das
    Inserat veröffentlicht wird.
 
